@@ -1,0 +1,68 @@
+# The First 4 Chars in a line shows the type of Geometry/Light data. Each Geometry needs different set of data
+# Note: Vectors like Points and Directions are represented with 3 numbers. Ex. vec3(1, 0, 2) will be 1 0 2.
+# For ease of understanding vectors will be represented as (vec3)<vec_name> in this doc
+#
+#
+#PUVL - Rectangular plane data with center, U, V vectors(sides directions), and length along U,V vectors
+# Structure - PUVL <plane_thickness> <plane_friction> (vec3)<center> (vec3)<u> (vec3)<v> <u_length> <v_length> 
+#
+#PNSP - Convex Polygonal plane data with N points
+# Structure - PNSP <plane_thickness> <plane_friction> <N> N * <(vec3)point>
+#
+#CUVH - Cuboid data with center of cuboid, U,V vectors of top face, length along U,V, Height of cuboid
+# Structure - CUVH <face_thickness> <face_friction> (vec3)<center> (vec3)<u> (vec3)<v> <u_length> <v_length> <height>
+#
+#CNPH - Cylinder data with N-sided top Convex Polygonal Plane and Height of cylinder
+# Structure - CNPH <face_thickness> <face_friction> <N> N * <(vec3)top_face_point> <height>
+#
+#PLES/PLEN - Point light source. PLEN for no shadows, PLES for shadow casting source
+# Structure - PLEN (vec3)<light_position> (vec3)<light_color> 
+#
+#DLES/DLEN - Directional light source. Casts shadows on a specific direction with given fov(in degrees) and aspect. DLEN for no shadows, DLES for shadow casting source
+# Structure - PLEN (vec3)<light_position> (vec3)<light_direction> (vec3)<light_color> <fov> <aspect>
+#
+# 0.4472135954999
+# 0.8944271909999
+
+DLEN -25 10 10  0 0 1  1 0 0  90 1
+DLEN 25 10 10  0 0 1  0 1 0  90 1
+DLES 0 10 20  0 0 -1  0 0 1  90 1
+
+# Road
+PNSP 0.1 100 4  200 60 -240  -200 60 -240  -200 60 -180  200 60 -180
+PNSP 0.1 100 4  200 60 -180  -200 60 -180  -200 0 -175  200 0 -175
+CNPH 0.1 100 3  90 60 -180  70 60 -180  88 55 -160  1
+CNPH 0.1 100 3  70 60 -180  -10 2 -160  88 55 -160  1
+CNPH 0.1 100 3  -10 2 -160  5 2 -140  88 55 -160  1
+CNPH 0.1 100 3  -10 2 -160  -15 0 -150  5 2 -140  1
+CNPH 0.1 100 3  -15 0 -150  0 0 -130  5 2 -140  1
+
+#garage
+CNPH 0.1 100 4  5 15 20  -45 15 20  -45 15 40  5 15 40  1
+CNPH 0.1 100 4  -45 15 40  5 15 40  5 0 40  -45 0 40  1
+CNPH 0.1 100 4  5 15 20  5 15 40  5 0 40  5 0 20  1
+CNPH 0.1 100 4  -45 15 20  -45 0 20  -45 0 40  -45 15 40  1
+
+#house
+CNPH 0.1 100 4  -90 30 -140  -190 30 -140  -190 30 20  -90 30 20  1
+CNPH 0.1 100 4  -90 60 -140  -190 60 -140  -190 60 20  -90 60 20  1
+CNPH 0.1 100 4  -90 60 20  -190 60 20  -190 0 20  -90 0 20  1
+CNPH 0.1 100 4  -90 60 -60  -90 0 -60  -190 0 -60  -190 60 -60  1
+CNPH 0.1 100 4  -90 60 -60  -90 60 20  -90 0 20  -90 0 -60  1
+CNPH 0.1 100 4  -190 60 -60  -190 0 -60  -190 0 20  -190 60 20  1
+#stairs
+CNPH 0.1 100 4  -70 0 -30  -80 0 -30  -80 15 10  -70 15 10  1
+CNPH 0.1 100 4  -70 0 -30  -70 5 -30  -70 20 10  -70 15 10  1
+
+CNPH 0.1 100 4  -70 15 10  -90 15 10  -90 15 20  -70 15 20  1
+CNPH 0.1 100 4  -70 20 20  -90 20 20  -90 15 20  -70 15 20  1
+CNPH 0.1 100 4  -70 20 10  -70 20 19  -70 15 19  -70 15 10  1
+
+CNPH 0.1 100 4  -80 15 10  -80 30 -30  -90 30 -30  -90 15 10  1
+CNPH 0.1 100 4  -80 15 10  -80 30 -30  -80 35 -30  -80 20 10  1
+
+CNPH 0.1 100 4  -80 30 -30  -80 30 -70  -90 30 -70  -90 30 -30  1
+
+#ground
+PNSP 0.1 100 4  200 0 -175  -200 0 -175  -200 0 240  200 0 240
+
