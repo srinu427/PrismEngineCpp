@@ -113,10 +113,24 @@ void PrismAudioManager::play_aud_buffer_from_source(std::string source_id, std::
 {
 	ALuint source = aud_sources[source_id];
 	ALuint sbuffer = aud_buffers[buffer_id];
-	alSourceStop(source);
+	//alSourceStop(source);
 	alSourcei(source, AL_BUFFER, sbuffer);
 	alSourcei(source, AL_LOOPING, (loop) ? AL_TRUE : AL_FALSE);
 	alSourcePlay(source);
+}
+
+bool PrismAudioManager::is_source_playing(std::string source_id)
+{
+	ALuint source = aud_sources[source_id];
+	ALenum state;
+	alGetSourcei(source, AL_SOURCE_STATE, &state);
+	return (state == AL_PLAYING);
+}
+
+void PrismAudioManager::stop_aud_from_source(std::string source_id)
+{
+	ALuint source = aud_sources[source_id];
+	alSourceStop(source);
 }
 
 PrismAudioManager::~PrismAudioManager()

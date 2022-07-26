@@ -22,6 +22,7 @@ struct wav_data {
 	uint8_t* data;
 };
 
+
 class PrismAudioManager
 {
 public:
@@ -31,6 +32,8 @@ public:
 	void add_aud_source(std::string id);
 	void update_aud_source(std::string id, glm::vec3 pos, glm::vec3 vel);
 	void play_aud_buffer_from_source(std::string source_id, std::string buffer_id, bool loop=false);
+	bool is_source_playing(std::string source_id);
+	void stop_aud_from_source(std::string source_id);
 	void add_aud_buffer(std::string id, std::string wavfname);
 	void update_listener(glm::vec3 pos, glm::vec3 vel, glm::vec3 ldir, glm::vec3 lup);
 private:

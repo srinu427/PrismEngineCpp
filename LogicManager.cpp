@@ -676,7 +676,11 @@ void LogicManager::init()
 
     audiomgr->add_aud_buffer("jump", "sounds/jump1.wav");
     audiomgr->add_aud_buffer("fall", "sounds/fall1.wav");
+    audiomgr->add_aud_buffer("grap1", "sounds/grap1.wav");
+    audiomgr->add_aud_buffer("grap2", "sounds/grap2.wav");
+    audiomgr->add_aud_buffer("graploop", "sounds/graploop1.wav");
     audiomgr->add_aud_source("player");
+    audiomgr->add_aud_source("player_grapple");
     audiomgr->add_aud_source("1");
     audiomgr->update_listener(player->_center, player->_vel, currentCamDir, currentCamUp);
 
@@ -940,9 +944,14 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
             inputmgr->clearKeyPressState(GLFW_KEY_Q);
             grappled = false;
             grapple_time = 0;
+            audiomgr->stop_aud_from_source("player_grapple");
+            audiomgr->play_aud_buffer_from_source("player_grapple", "grap2");
             give_ungrappled_va(inp_vel, ground_touch, do_jump, true);
         }
         else {
+            if (!audiomgr->is_source_playing("player_grapple")) {
+                audiomgr->play_aud_buffer_from_source("player_grapple", "graploop", true);
+            }
             give_grappled_va(inp_vel, glm::normalize(grdir), do_jump);
             grapple_time += int(logicDeltaT * 1000);
             gen_grapple_verts(player->_center, curr_gr_point, &mobjects[0].mesh, false);
@@ -959,6 +968,7 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
                 if (glm::length(grdir) > 1) {
                     grappled = true;
                     give_grappled_va(inp_vel, glm::normalize(grdir), do_jump, true);
+                    audiomgr->play_aud_buffer_from_source("player_grapple", "grap1");
                     grapple_time = int(logicDeltaT * 1000);
                     gen_grapple_verts(player->_center, curr_gr_point, &mobjects[0].mesh, false);
                 }
@@ -999,6 +1009,7 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
             crelx) * glm::vec4(currentCamDir, 0.0f));
     }
     audiomgr->update_aud_source("player", player->_center, player->_vel);
+    audiomgr->update_aud_source("player_grapple", player->_center, player->_vel);
     audiomgr->update_listener(player->_center, player->_vel, currentCamDir, currentCamUp);
 
     inputmgr->clearMOffset();
