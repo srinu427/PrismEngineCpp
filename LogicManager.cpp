@@ -997,7 +997,7 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
         print_vec(player->_center - physicsmgr->lmeshes->at(ground_plane)->_center);
         std::cout << int(logicDeltaT * 1000) << ',' << ground_touch << ',' << last_f_in_ground << ',' << in_air << '\n';
     }
-    currentCamEye = player->_center + glm::vec3(0, 2.5, 0);
+    currentCamEye = player->_center + glm::vec3(0, 2.0, 0);
     currentCamDir = glm::vec3(glm::rotate(glm::mat4(1.0f),
         glm::radians(MOUSE_SENSITIVITY_X * float(inputmgr->dmx)),
         crely) * glm::vec4(currentCamDir, 0.0f));
