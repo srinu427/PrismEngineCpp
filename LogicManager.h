@@ -12,6 +12,12 @@
 class LogicManager
 {
 public:
+	std::vector<Prism::GPULight> nslights;
+	std::vector<Prism::GPULight> plights;
+	std::vector<Prism::GPULight> dlights;
+
+	std::vector<PrismModelData> mobjects;
+
 	LogicManager(PrismInputs* ipmgr, PrismAudioManager* audman, int logicpolltime_ms=1);
 	~LogicManager();
 	void run();
@@ -32,6 +38,7 @@ private:
 	glm::vec3 currentCamUp = glm::normalize(glm::vec3(0.0f, 1.0f, 0.0f));
 	float camNP = 0.01f;
 	float camFP = 1000.0f;
+	float camFOV = glm::radians(90.0f);
 
 	float MOUSE_SENSITIVITY_X = -0.1f;
 	float MOUSE_SENSITIVITY_Y = -0.1f;
@@ -62,19 +69,16 @@ private:
 	glm::vec3 ground_normal = glm::vec3(0);
 	int ground_plane = -1;
 
-	std::vector<PrismModelData> mobjects;
-
 	size_t MAX_NS_LIGHTS = 30;
 	size_t MAX_POINT_LIGHTS = 8;
 	size_t MAX_DIRECTIONAL_LIGHTS = 8;
-	std::vector<Prism::GPULight> nslights;
-	std::vector<Prism::GPULight> plights;
-	std::vector<Prism::GPULight> dlights;
+	
 	SimpleThreadPooler* logic_thread_pool;
 	
 	void init();
 	void give_grappled_va(glm::vec3 inp_vel, glm::vec3 grdir, bool do_jump, bool just_grappled = false);
 	void give_ungrappled_va(glm::vec3 inp_vel, bool ground_touch, bool do_jump, bool just_ungrappled = false);
+	void copy_mobjects_to_renderer(PrismRenderer* renderer, uint32_t frameNo);
 	void computeLogic(std::chrono::system_clock::time_point curr_time, std::chrono::milliseconds gap);
 	std::chrono::system_clock::time_point lastLogicComputeTime;
 	bool started = false;

@@ -180,7 +180,7 @@ float compute_map_shadow(int lidx, vec3 light_vec, vec4 ppos, vec4 normal){
 	vec2 sample_vec;
 	float brad = max(0.005, SMAP_BLUR_EPSILON*(1 - cdist/lvl));
 	
-	for (int i = 0; i < 64; i+=2){
+	for (int i = 0; i < 64; i+=4){
 		sample_vec = csample + brad*smapKernel.data[i].xy;
 		if (sample_vec.x > 0 && sample_vec.x < 1 && sample_vec.y > 0 && sample_vec.y < 1){
 			if(texture(shadowMaps[midx], sample_vec).r*SMAP_MUL_EPSILON + SMAP_ADD_EPSILON >= lvl){
@@ -278,7 +278,7 @@ void main() {
 
 	float taow = 0;
 
-	for (int i = 0; i < SMAP_BLUR_SAMPLES ; i+=4){
+	for (int i = 0; i < SMAP_BLUR_SAMPLES ; i+=1){
 		vec2 sample_vec = brad*i*vec2(smap_cosines[i], smap_sines[i]);
 		vec2 ssvec = movedUV + sample_vec;
 		if (ssvec.x >0 && ssvec.x < 1 && ssvec.y > 0 && ssvec.y < 1){
@@ -302,7 +302,7 @@ void main() {
 			taow += 0.5;
 		}
 	}
-	ao = (ao + ambTex.r)/(1 + taow);
+	ao = (ao + ambTex.r)/(4 + taow);
 	ao = pow(ao, 1);
     //outColor = texColor * ao * ao;
 	outColor = texColor * max((AMBIENT + overall_shade)*ao, 10 * seTex.y);

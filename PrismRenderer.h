@@ -7,6 +7,7 @@
 
 class PrismRenderer {
 public:
+	const size_t MAX_OBJECTS = 1000;
 	const size_t MAX_NS_LIGHTS = 30;
 	const size_t MAX_POINT_LIGHTS = 8;
 	const size_t MAX_DIRECTIONAL_LIGHTS = 8;
@@ -16,6 +17,9 @@ public:
 
 	std::vector<Prism::RenderObject> renderObjects;
 	std::vector<Prism::GPULight> lights;
+	std::vector<size_t> plight_render_list;
+	std::vector<size_t> dlight_render_list;
+	std::vector<size_t> cam_render_list;
 
 	Prism::GPUSceneData currentScene;
 	Prism::GPUCameraData currentCamera;
@@ -37,7 +41,6 @@ private:
 #else
 	const bool enableValidationLayers = true;
 #endif
-	const size_t MAX_OBJECTS = 1000;
 
 	vk::ClearValue COLOR_CLEAR_VAL_DEFAULT{ .color = vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f }) };
 	vk::ClearValue DEPTH_CLEAR_VAL_DEFAULT{ .depthStencil = vk::ClearDepthStencilValue(1.0f, 0) };

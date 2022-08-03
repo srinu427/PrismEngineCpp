@@ -8,6 +8,7 @@
 #include <sstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/norm.hpp>
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
@@ -15,34 +16,150 @@
 using namespace collutils;
 using namespace Prism;
 
+struct IndDist {
+    size_t ind = 0;
+    float dist = 0;
+};
+
+bool dcompop(IndDist i1, IndDist i2) {
+    return i1.dist < i2.dist;
+}
+
 static inline glm::vec3 jlist_to_vec3(rapidjson::Value& jval) {
     return glm::vec3(jval[0].GetFloat(), jval[1].GetFloat(), jval[2].GetFloat());
 };
 
-static void copy_lights_to_renderer(std::vector<Prism::GPULight>* logicLights, std::vector<Prism::GPULight>* rendererLights, size_t renderer_offset, glm::vec3 cam_pos) {
+std::vector<glm::vec4> fill_frustum_planes(glm::vec3 camPos, glm::vec3 camDir, glm::vec3 camUp, float camNP, float camFP, float camVFOV, float camAspect) {
+    std::vector<glm::vec4> fplanes(6);
+    glm::vec3 n = glm::normalize(camDir);
+    glm::vec3 u = glm::normalize(collutils::normalize_vec_in_dir(camUp, n));
+    glm::vec3 v = glm::cross(u, n);
+    u *= float(tan(camVFOV / 2.0));
+    v *= float(tan(camAspect * camVFOV / 2.0));
+    fplanes[0] = glm::vec4(n, -glm::dot(n, camPos + camNP * n));
+    fplanes[1] = glm::vec4(-n, -glm::dot(-n, camPos + camFP * n));
+    glm::vec3 tn = glm::normalize(glm::cross(n + u - v, n + u + v));
+    fplanes[2] = glm::vec4(-tn, -glm::dot(-tn, camPos));
+    tn = glm::normalize(glm::cross(n - u - v, n - u + v));
+    fplanes[3] = glm::vec4(tn, -glm::dot(tn, camPos));
+    tn = glm::normalize(glm::cross(n - u + v, n + u + v));
+    fplanes[4] = glm::vec4(tn, -glm::dot(tn, camPos));
+    tn = glm::normalize(glm::cross(n - u - v, n + u - v));
+    fplanes[5] = glm::vec4(-tn, -glm::dot(-tn, camPos));
+
+    return fplanes;
+}
+
+static void copy_nslights_to_renderer(std::vector<Prism::GPULight>* logicLights, std::vector<Prism::GPULight>* rendererLights, size_t renderer_offset, glm::vec3 cam_pos) {
     for (int i = 0; i < logicLights->size(); i++) {
-        if (glm::length(glm::vec3(logicLights->at(i).pos) - cam_pos) > 400) logicLights->at(i).flags.x &= 1;
-        else logicLights->at(i).flags.x |= 15;
+        
         rendererLights->at(i + renderer_offset) = logicLights->at(i);
     }
 }
 
-static void copy_mobject_to_renderer(PrismModelData* mobject, PrismRenderer* renderer, size_t midx, glm::mat4 vpmatrix) {
-    if (mobject->visible) {
-        //Prism::Mesh* tmesh = &mobject->mesh;
-        //bool occluded = true;
-        //for (size_t i = 0; i < tmesh->_vertices.size(); i++) {
-        //    glm::vec4 projv = vpmatrix * glm::vec4(tmesh->_vertices[i].pos, 1);
-        //    projv = projv / projv.w;
-        //    if (projv.x >= -1 && projv.x <= 1 && projv.y >= -1 && projv.y <= 1 && projv.z > 0) {
-        //        occluded = false;
-        //        break;
-        //    }
-        //}
-        if (!mobject->pushed_to_renderer) {
-            renderer->addRenderObj(mobject, midx);
+static void copy_dlights_to_renderer(LogicManager* logicmgr, PrismRenderer* renderer, size_t dlight_index) {
+        std::vector<glm::vec4> fplanes = fill_frustum_planes(logicmgr->dlights[dlight_index].pos, logicmgr->dlights[dlight_index].dir, glm::vec3(0, 1, 0), 0.1f, logicmgr->dlights[dlight_index].props.y, logicmgr->dlights[dlight_index].props.z, logicmgr->dlights[dlight_index].props.w);
+        uint32_t vis_count = 0;
+        for (size_t i = 1; i < logicmgr->mobjects.size(); i++) {
+            if (logicmgr->mobjects[i].visible) {
+                bool mobj_in_frust = true;
+                for (size_t j = 0; j < 6; j++) {
+                    float mobj_dist = glm::dot(fplanes[j], glm::vec4(logicmgr->mobjects[i].objLRS.location + logicmgr->mobjects[i].mesh_center, 1));
+                    if (mobj_dist < -logicmgr->mobjects[i].mesh_sbound_radius) {
+                        mobj_in_frust = false;
+                        break;
+                    }
+                }
+                if (mobj_in_frust) {
+                    renderer->dlight_render_list[renderer->MAX_OBJECTS * dlight_index + vis_count + 1] = logicmgr->mobjects[i].renderer_id;
+                    vis_count++;
+                }
+            }
         }
-        renderer->renderObjects[mobject->renderer_id].uboData.model = mobject->objLRS.getTMatrix();
+        renderer->dlight_render_list[renderer->MAX_OBJECTS * dlight_index] = vis_count;
+        renderer->lights[renderer->MAX_NS_LIGHTS + renderer->MAX_POINT_LIGHTS + dlight_index] = logicmgr->dlights[dlight_index];
+}
+
+static void copy_plights_to_renderer(LogicManager* logicmgr, PrismRenderer* renderer, size_t plight_index) {
+    uint32_t vis_count = 0;
+    for (size_t i = 1; i < logicmgr->mobjects.size(); i++) {
+        if (logicmgr->mobjects[i].visible) {
+            if (glm::length(logicmgr->mobjects[i].mesh_center + logicmgr->mobjects[i].objLRS.location - glm::vec3(logicmgr->plights[plight_index].pos)) < logicmgr->plights[plight_index].props.y + logicmgr->mobjects[i].mesh_sbound_radius) {
+                renderer->plight_render_list[renderer->MAX_OBJECTS * plight_index + vis_count + 1] = logicmgr->mobjects[i].renderer_id;
+                vis_count++;
+            }
+        }
+    }
+    renderer->plight_render_list[renderer->MAX_OBJECTS * plight_index] = vis_count;
+    renderer->lights[renderer->MAX_NS_LIGHTS + plight_index] = logicmgr->plights[plight_index];
+}
+
+static float get_min_dist_from_cam(PrismModelData* mobj, glm::vec3 camPos, glm::vec3 camDir) {
+    float mind = 10000000;
+    camDir = glm::normalize(camDir);
+    Prism::Vertex* verts_ptr = mobj->mesh._vertices.data();
+    for (size_t i = 0; i < mobj->mesh._vertices.size(); i++) {
+        float vdist = glm::dot(camDir, verts_ptr[i].pos - camPos);
+        if (vdist < mind) mind = vdist;
+    }
+    return mind;
+}
+
+void LogicManager::copy_mobjects_to_renderer(PrismRenderer* renderer, uint32_t frameNo) {
+    std::vector<IndDist> vlist;
+    if (grappled) {
+        if (!mobjects[0].pushed_to_renderer) {
+            renderer->addRenderObj(&mobjects[0], 0);
+        }
+        renderer->renderObjects[mobjects[0].renderer_id].renderable = true;
+        IndDist ghookid;
+        ghookid.ind = mobjects[0].renderer_id;
+        ghookid.dist = 0;
+        vlist.push_back(ghookid);
+        renderer->refreshMeshVB(&mobjects[0], frameNo);
+    }
+    else {
+        if (mobjects[0].pushed_to_renderer) {
+            renderer->renderObjects[mobjects[0].renderer_id].renderable = false;
+        }
+    }
+    std::vector<glm::vec4> fplanes = fill_frustum_planes(currentCamEye, currentCamDir, currentCamUp, camNP, camFP, camFOV, (float)renderer->swapChainExtent.width / (float)renderer->swapChainExtent.height);
+
+    for (size_t moi = 1; moi < mobjects.size(); moi++) {
+        if (mobjects[moi].visible) {
+            if (!mobjects[moi].pushed_to_renderer) {
+                renderer->addRenderObj(&mobjects[moi], moi);
+            }
+            renderer->renderObjects[mobjects[moi].renderer_id].uboData.model = mobjects[moi].objLRS.getTMatrix();
+
+            bool mobj_in_frust = true;
+            for (size_t j = 0; j < 6; j++) {
+                float mobj_dist = glm::dot(fplanes[j], glm::vec4(mobjects[moi].objLRS.location + mobjects[moi].mesh_center, 1));
+                if (mobj_dist < -mobjects[moi].mesh_sbound_radius) {
+                    mobj_in_frust = false;
+                    break;
+                }
+            }
+            
+            if (mobj_in_frust) {
+                IndDist tmpid;
+                tmpid.ind = mobjects[moi].renderer_id;
+                tmpid.dist = get_min_dist_from_cam(&mobjects[moi], currentCamEye, currentCamDir);
+                vlist.push_back(tmpid);
+            }
+        }
+    }
+    std::sort(vlist.begin(), vlist.end(), dcompop);
+    renderer->cam_render_list[0] = vlist.size();
+    for (size_t cri = 0; cri < vlist.size(); cri++) {
+        renderer->cam_render_list[cri + 1] = vlist[cri].ind;
+    }
+}
+
+static void udpate_mobject_from_phymgr(PrismModelData* mobject, PrismPhysics* phymgr) {
+    if (mobject->pushed_to_pysics_mgr) {
+        size_t tpmi = mobject->physics_mgr_id;
+        mobject->objLRS.location = mobject->initLRS.location + (phymgr->lmeshes->at(tpmi)->_center - phymgr->lmeshes->at(tpmi)->_init_center);
     }
 }
 
@@ -57,7 +174,7 @@ void gen_grapple_verts(glm::vec3 pcen, glm::vec3 gpoint, Mesh* ghookm, bool neve
         ghookm->_vertices.resize(24);
     }
     glm::vec3 gdir = glm::normalize(gpoint - pcen);
-    float glen = glm::length(gpoint - pcen);
+    float glen = glm::length2(gpoint - pcen);
     if (glen < 0.0000001) return;
     glm::vec3 i = (gdir.y == 0 && gdir.z == 0) ? glm::vec3(0, 0, 1) : glm::vec3(1, 0, 0);
     i = 0.1f * glm::normalize(normalize_vec_in_dir(i, gdir));
@@ -209,6 +326,8 @@ void LogicManager::parseCollDataFile(std::string cfname)
                     tmd.texFilePath = "textures/basic_tile.png";
                     tmd.nmapFilePath = "textures/flat_nmap.png";
                     tmd.semapFilePath = "textures/basic_tile_se.png";
+                    tmd.mesh_center = tmd.mesh.get_center();
+                    tmd.mesh_sbound_radius = tmd.mesh.get_bound_sphere_radius();
                     mobjects.push_back(tmd);
                     continue;
                 }
@@ -233,6 +352,8 @@ void LogicManager::parseCollDataFile(std::string cfname)
                     tmd.texFilePath = "textures/basic_tile.png";
                     tmd.nmapFilePath = "textures/flat_nmap.png";
                     tmd.semapFilePath = "textures/basic_tile_se.png";
+                    tmd.mesh_center = tmd.mesh.get_center();
+                    tmd.mesh_sbound_radius = tmd.mesh.get_bound_sphere_radius();
                     mobjects.push_back(tmd);
                     continue;
                 }
@@ -254,6 +375,8 @@ void LogicManager::parseCollDataFile(std::string cfname)
                     tmd.texFilePath = "textures/basic_tile.png";
                     tmd.nmapFilePath = "textures/flat_nmap.png";
                     tmd.semapFilePath = "textures/basic_tile_se.png";
+                    tmd.mesh_center = tmd.mesh.get_center();
+                    tmd.mesh_sbound_radius = tmd.mesh.get_bound_sphere_radius();
                     mobjects.push_back(tmd);
                     continue;
                 }
@@ -280,6 +403,8 @@ void LogicManager::parseCollDataFile(std::string cfname)
                     tmd.texFilePath = "textures/basic_tile.png";
                     tmd.nmapFilePath = "textures/flat_nmap.png";
                     tmd.semapFilePath = "textures/basic_tile_se.png";
+                    tmd.mesh_center = tmd.mesh.get_center();
+                    tmd.mesh_sbound_radius = tmd.mesh.get_bound_sphere_radius();
                     mobjects.push_back(tmd);
                     continue;
                 }
@@ -387,6 +512,7 @@ void LogicManager::parseCollDataFile(std::string cfname)
                     tmpold->initLRS.scale = init_scale;
                     tmpold->objLRS.location = init_loc;
                     tmpold->objLRS.scale = init_scale;
+                    tmpold->mesh_sbound_radius = tmpold->mesh.get_bound_sphere_radius();
                     continue;
                 }
                 if (strcmp(itype, "DLES") == 0) {
@@ -400,8 +526,10 @@ void LogicManager::parseCollDataFile(std::string cfname)
                         tmpl.dir = glm::vec4(light_dir, 0);
                         tmpl.color = glm::vec4(light_col, 1);
                         tmpl.props.y = ldist;
+                        tmpl.props.z = glm::radians(fov);
+                        tmpl.props.w = glm::radians(aspect);
                         tmpl.flags.x = (PRISM_LIGHT_EMISSIVE_FLAG | PRISM_LIGHT_SHADOW_FLAG);
-                        tmpl.set_vp_mat(glm::radians(fov), aspect, 0.01f, 1000.0f);
+                        tmpl.set_vp_mat(glm::radians(fov), aspect, 0.01f, ldist);
                         dlights.push_back(tmpl);
                     }
                     continue;
@@ -417,8 +545,10 @@ void LogicManager::parseCollDataFile(std::string cfname)
                         tmpl.dir = glm::vec4(light_dir, 0);
                         tmpl.color = glm::vec4(light_col, 1);
                         tmpl.props.y = ldist;
+                        tmpl.props.z = glm::radians(fov);
+                        tmpl.props.w = glm::radians(aspect);
                         tmpl.flags.x = (PRISM_LIGHT_EMISSIVE_FLAG);
-                        tmpl.set_vp_mat(glm::radians(fov), aspect, 0.01f, 1000.0f);
+                        tmpl.set_vp_mat(glm::radians(fov), aspect, 0.01f, ldist);
                         nslights.push_back(tmpl);
                     }
                     continue;
@@ -637,6 +767,7 @@ void LogicManager::init()
     GrappleMD.texFilePath = "textures/grapple_tile.png";
     GrappleMD.nmapFilePath = "textures/grapple_tile_n.png";
     GrappleMD.semapFilePath = "textures/grapple_tile_se.png";
+    GrappleMD.mesh_sbound_radius = GrappleMD.mesh.get_bound_sphere_radius();
     mobjects.push_back(GrappleMD);
 
     PrismModelData obama;
@@ -647,6 +778,7 @@ void LogicManager::init()
     obama.semapFilePath = "textures/ptex1_se.png";
     obama.objLRS.location = glm::vec3(0.0f, 0.5f, 0.1f);
     obama.objLRS.scale = glm::vec3{ 1.0f };
+    obama.mesh_sbound_radius = obama.mesh.get_bound_sphere_radius();
 
     BoneAnimStep rotateprism;
     rotateprism.stepduration_ms = 2000;
@@ -668,6 +800,7 @@ void LogicManager::init()
     light.semapFilePath = "textures/ptex1_se.png";
     light.objLRS.location = currentCamEye;
     light.objLRS.scale = glm::vec3{ 0.04f };
+    light.mesh_sbound_radius = light.mesh.get_bound_sphere_radius();
 
     mobjects.push_back(obama);
     //mobjects["light"] = light;
@@ -684,7 +817,7 @@ void LogicManager::init()
     audiomgr->add_aud_source("1");
     audiomgr->update_listener(player->_center, player->_vel, currentCamDir, currentCamUp);
 
-    logic_thread_pool = new SimpleThreadPooler(3);
+    logic_thread_pool = new SimpleThreadPooler(6);
     logic_thread_pool->run();
     rpush_mut.unlock();
 }
@@ -712,21 +845,24 @@ void LogicManager::run()
 void LogicManager::pushToRenderer(PrismRenderer* renderer, uint32_t frameNo)
 {
     rpush_mut.lock();
+    
     renderer->currentScene.sunlightPosition = glm::vec4(sunlightDir, 1.0f);
-    //copy_lights_to_renderer(&nslights, &renderer->lights, 0);
-    logic_thread_pool->add_task(copy_lights_to_renderer, &nslights, &renderer->lights, 0, currentCamEye);
-    logic_thread_pool->add_task(copy_lights_to_renderer, &plights, &renderer->lights, renderer->MAX_NS_LIGHTS, currentCamEye);
-    logic_thread_pool->add_task(copy_lights_to_renderer, &dlights, &renderer->lights, renderer->MAX_NS_LIGHTS + renderer->MAX_POINT_LIGHTS, currentCamEye);
-    //copy_lights_to_renderer(&plights, &renderer->lights, renderer->MAX_NS_LIGHTS);
-    //copy_lights_to_renderer(&dlights, &renderer->lights, renderer->MAX_NS_LIGHTS + renderer->MAX_POINT_LIGHTS);
 
+    logic_thread_pool->add_task(copy_nslights_to_renderer, &nslights, &renderer->lights, 0, currentCamEye);
+    for (size_t pli = 0; pli < plights.size(); pli++) {
+        logic_thread_pool->add_task(copy_plights_to_renderer, this, renderer, pli);
+    }
+    for (size_t dli = 0; dli < dlights.size(); dli++) {
+        logic_thread_pool->add_task(copy_dlights_to_renderer, this, renderer, dli);
+    }
+    
     glm::mat4 view = glm::lookAt(
         currentCamEye,
         currentCamEye + currentCamDir,
         currentCamUp
     );
     glm::mat4 proj = glm::perspective(
-        glm::radians(90.0f),
+        camFOV,
         renderer->swapChainExtent.width / (float)renderer->swapChainExtent.height,
         camNP,
         camFP);
@@ -736,25 +872,10 @@ void LogicManager::pushToRenderer(PrismRenderer* renderer, uint32_t frameNo)
     renderer->currentCamera.camPos = { currentCamEye, 0.0 };
     renderer->currentCamera.camDir = { currentCamDir, 0.0 };
 
-    for (int i = 1; i < mobjects.size(); i++) {
-        //copy_mobject_to_renderer(&mobjects[i], renderer, i);
-        logic_thread_pool->add_task(copy_mobject_to_renderer, &mobjects[i], renderer, i, renderer->currentCamera.viewproj);
-    }
+    copy_mobjects_to_renderer(renderer, frameNo);
 
-    if (grappled) {
-        if (!mobjects[0].pushed_to_renderer) {
-            renderer->addRenderObj(&mobjects[0], 0);
-        }
-        //renderer->renderObjects[ghidx].shadowcasting = false;
-        renderer->renderObjects[mobjects[0].renderer_id].renderable = true;
-        renderer->refreshMeshVB(&mobjects[0], frameNo);
-    }
-    else {
-        if (mobjects[0].pushed_to_renderer) {
-            renderer->renderObjects[mobjects[0].renderer_id].renderable = false;
-        }
-    }
     logic_thread_pool->wait_till_done();
+    
     rpush_mut.unlock();
 }
 
@@ -762,7 +883,7 @@ void LogicManager::give_grappled_va(glm::vec3 inp_vel, glm::vec3 grdir, bool do_
 {
     player->controlled = true;
     player_future->controlled = true;
-    if (glm::length(inp_vel) > 0) {
+    if (glm::length2(inp_vel) > 0) {
         if (!do_jump) {
             if (glm::dot(player->_vel, glm::normalize(inp_vel)) < AIR_CONTROL_VELOCITY_MAX) {
                 player->_acc = AIR_ACCELERATION * glm::normalize(glm::vec3(inp_vel.x, 0, inp_vel.z));
@@ -797,7 +918,7 @@ void LogicManager::give_grappled_va(glm::vec3 inp_vel, glm::vec3 grdir, bool do_
 
 void LogicManager::give_ungrappled_va(glm::vec3 inp_vel, bool ground_touch, bool do_jump, bool just_ungrappled)
 {
-    if (glm::length(inp_vel) > 0) {
+    if (glm::length2(inp_vel) > 0) {
         player->controlled = true;
         player_future->controlled = true;
         if (ground_touch) {
@@ -848,7 +969,6 @@ void LogicManager::give_ungrappled_va(glm::vec3 inp_vel, bool ground_touch, bool
 
 void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time, std::chrono::milliseconds gap)
 {
-    rpush_mut.lock();
     float logicDeltaT = std::chrono::duration<float, std::chrono::seconds::period>(gap).count();
     
     langle = (langle + (logicDeltaT * 0.5f));
@@ -935,6 +1055,9 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
     in_air = !ground_touch;
 
     bool qpressed = inputmgr->wasKeyPressed(GLFW_KEY_Q);
+
+    rpush_mut.lock();
+
     if (grappled) {
         glm::vec3 curr_gr_point = (glm::transpose(physicsmgr->lmeshes->at(grapple_point.obj_index)->_uvw) * grapple_point.relative_disp) + physicsmgr->lmeshes->at(grapple_point.obj_index)->_center;
         glm::vec3 grdir = curr_gr_point - player->_center;
@@ -982,10 +1105,10 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
 
     player_future->_vel = player->_vel;
     player_future->_acc = player->_acc;
-
+    //std::chrono::system_clock::time_point startt = std::chrono::system_clock::now();
     physicsmgr->run_physics(int(logicDeltaT * 1000));
     //physicsmgr->run_physics(5);
-
+    
     for (size_t it = 1; it < mobjects.size(); it++) {
         if (mobjects[it].pushed_to_pysics_mgr) {
             size_t tpmi = mobjects[it].physics_mgr_id;
@@ -1012,8 +1135,11 @@ void LogicManager::computeLogic(std::chrono::system_clock::time_point curr_time,
     audiomgr->update_aud_source("player_grapple", player->_center, player->_vel);
     audiomgr->update_listener(player->_center, player->_vel, currentCamDir, currentCamUp);
 
-    inputmgr->clearMOffset();
     rpush_mut.unlock();
+
+    inputmgr->clearMOffset();
+    //std::chrono::system_clock::time_point stopt = std::chrono::system_clock::now();
+    //std::cout << std::chrono::ceil<std::chrono::milliseconds>(stopt - startt).count() << "\n";
 }
 
 void LogicManager::stop()

@@ -7,11 +7,13 @@ SimpleThreadPooler::SimpleThreadPooler(uint32_t max_threads)
 	_wthreads.resize(thread_limit);
 	_thread_running.resize(thread_limit);
 	_rem_tasks.resize(MAX_TASKS);
+	_task_being_read = new std::atomic<bool>[MAX_TASKS];
 }
 
 SimpleThreadPooler::~SimpleThreadPooler()
 {
 	stop();
+	delete _task_being_read, MAX_TASKS;
 }
 
 //template<typename F, typename ...Fargs>
@@ -24,18 +26,23 @@ SimpleThreadPooler::~SimpleThreadPooler()
 
 void SimpleThreadPooler::do_work(size_t tid)
 {
+	uint32_t myrti = 0;
 	while (!stop_work) {
-		at_lock.lock();
-		if (rti != rtj) {
-			std::function<void()> t = _rem_tasks[rti];
-			rti = (rti + 1) % MAX_TASKS;
-			_thread_running[tid] = true;
-			at_lock.unlock();
-			t();
+		if (myrti != rtj) {
+			bool no_work = false;
+			if (!_task_being_read[myrti]) {
+				_task_being_read[myrti] = true;
+				std::function<void()> t = _rem_tasks[myrti];
+				_thread_running[tid] = true;
+				t();
+				_thread_running[tid] = false;
+			}
+			else{
+				myrti = (myrti + 1) % MAX_TASKS;
+			}
 		}
 		else {
 			_thread_running[tid] = false;
-			at_lock.unlock();
 		}
 	}
 }
@@ -63,17 +70,19 @@ void SimpleThreadPooler::stop()
 
 void SimpleThreadPooler::wait_till_done()
 {
+	wait_lock.lock();
 	while (true) {
-		at_lock.lock();
-		bool is_empty = rti == rtj;
-		if (is_empty) {
-			for (size_t i = 0; i < thread_limit; i++) {
-				if (_thread_running[i]) is_empty = false;
+		bool is_done = true;
+		for (size_t i = 0; i < thread_limit; i++) {
+			if (_thread_running[i]) {
+				is_done = false;
+				break;
 			}
 		}
-		at_lock.unlock();
-		if (is_empty) {
+		if (is_done) {
+			wait_lock.unlock();
 			return;
 		}
 	}
+	wait_lock.unlock();
 }

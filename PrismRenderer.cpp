@@ -36,6 +36,10 @@ PrismRenderer::PrismRenderer(GLFWwindow* glfwWindow, void (*nextFrameCallback) (
 	window = glfwWindow;
 	uboUpdateCallback = nextFrameCallback;
 	lights.resize(MAX_NS_LIGHTS + MAX_DIRECTIONAL_LIGHTS + MAX_POINT_LIGHTS);
+	plight_render_list.resize(MAX_POINT_LIGHTS * (MAX_OBJECTS + 1));
+	dlight_render_list.resize(MAX_DIRECTIONAL_LIGHTS * (MAX_OBJECTS + 1));
+	cam_render_list.resize(MAX_OBJECTS + 1);
+
 	// Layers and Extensions needed
 	validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -1719,11 +1723,10 @@ void PrismRenderer::addGBufferRenderCmds(size_t frameNo)
 	Prism::GPUPipeline gbuffer_pipeline = pipelines["gbuffer"];
 	cmdbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, gbuffer_pipeline._pipeline);
 
-	size_t robjCount = renderObjects.size();
+	size_t robjCount = cam_render_list[0];
 
 	for (size_t ro_idx = 0; ro_idx < robjCount; ro_idx++) {
-		Prism::RenderObject* robj = &renderObjects[ro_idx];
-		if (!robj->renderable) continue;
+		Prism::RenderObject* robj = &renderObjects[cam_render_list[ro_idx + 1]];
 
 		vk::Buffer vertexBuffers[] = { robj->_vertexBuffers[frameNo]._buffer};
 		vk::DeviceSize offsets[] = { 0 };
@@ -1738,9 +1741,10 @@ void PrismRenderer::addGBufferRenderCmds(size_t frameNo)
 			},
 			{}
 		);
-		cmdbuffer.drawRenderObjectMesh(robj, ro_idx);
+		cmdbuffer.drawRenderObjectMesh(robj, cam_render_list[ro_idx + 1]);
 	}
 	cmdbuffer.endRenderPass();
+	//std::cout << "gbuffer objs drawn: " << robjCount << "\n";
 }
 
 void PrismRenderer::addDSMapRenderCmds(size_t frameNo)
@@ -1761,7 +1765,6 @@ void PrismRenderer::addDSMapRenderCmds(size_t frameNo)
 	Prism::GPUPipeline dLightPipeline = pipelines["dsmap"];
 	Prism::GPULightPC tlpc;
 	tlpc.viewproj = glm::mat4(1);
-	size_t robjCount = renderObjects.size();
 
 	for (size_t lidx = 0; lidx < MAX_DIRECTIONAL_LIGHTS; lidx++) {
 		if (!(lights[MAX_NS_LIGHTS + MAX_POINT_LIGHTS + lidx].flags.x & 1)) continue;
@@ -1775,18 +1778,21 @@ void PrismRenderer::addDSMapRenderCmds(size_t frameNo)
 			{ frameDatas[frameNo].setBuffers["light"]._dSet, frameDatas[frameNo].setBuffers["object"]._dSet }, {}
 		);
 		cmdbuffer.pushConstants(dLightPipeline._pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(Prism::GPULightPC), &tlpc);
-
-		for (size_t ro_idx = 0; ro_idx < robjCount; ro_idx++) {
+		size_t drcount = 0;
+		for (size_t do_idx = 0; do_idx < dlight_render_list[MAX_OBJECTS * lidx]; do_idx++) {
+			size_t ro_idx = dlight_render_list[MAX_OBJECTS * lidx + do_idx + 1];
 			Prism::RenderObject robj = renderObjects[ro_idx];
-			if (!robj.renderable || !robj.shadowcasting) continue;
+			if (!robj.shadowcasting) continue;
 
 			vk::Buffer vertexBuffers[] = { robj._vertexBuffers[frameNo]._buffer };
 			vk::DeviceSize offsets[] = { 0 };
 			cmdbuffer.bindVertexBuffers(0, vertexBuffers, offsets);
 			cmdbuffer.bindIndexBuffer(robj._indexBuffers[frameNo]._buffer, 0, vk::IndexType::eUint32);
 			cmdbuffer.drawRenderObjectMesh(&robj, ro_idx);
+			drcount++;
 		}
 		cmdbuffer.endRenderPass();
+		//std::cout << "dlight" << lidx << " objs drawn: " << drcount << "\n";
 
 		vk::ImageMemoryBarrier imbarrier{
 			.srcAccessMask = vk::AccessFlagBits::eShaderRead,
@@ -1852,13 +1858,15 @@ void PrismRenderer::addPSMapRenderCmds(size_t frameNo)
 
 	Prism::GPUPipeline pLightPipeline = pipelines["psmap"];
 	Prism::GPULightPC tlpc;
-	size_t robjCount = renderObjects.size();
+	
 	glm::mat4 projMatrix = glm::perspective(glm::radians(90.0f), float(plight_smap_extent.width) / float(plight_smap_extent.height), 0.01f, 1000.0f);
 
 	for (size_t lidx = 0; lidx < MAX_POINT_LIGHTS; lidx++) {
 		if (!(lights[MAX_NS_LIGHTS + lidx].flags.x & 1)) continue;
 		tlpc.idx.x = int(MAX_NS_LIGHTS + lidx);
 
+		size_t drcount = 0;
+		
 		for (uint32_t face = 0; face < 6; face++) {
 			glm::mat4 viewMatrix = glm::mat4(1);
 			switch (face)
@@ -1893,15 +1901,17 @@ void PrismRenderer::addPSMapRenderCmds(size_t frameNo)
 			);
 			cmdbuffer.pushConstants(pLightPipeline._pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(Prism::GPULightPC), &tlpc);
 
-			for (size_t ro_idx = 0; ro_idx < robjCount; ro_idx++) {
+			for (size_t po_idx = 0; po_idx < plight_render_list[MAX_OBJECTS * lidx]; po_idx++) {
+				size_t ro_idx = dlight_render_list[MAX_OBJECTS * lidx + po_idx + 1];
 				Prism::RenderObject robj = renderObjects[ro_idx];
-				if (!robj.renderable || !robj.shadowcasting) continue;
+				if (!robj.shadowcasting) continue;
 
 				vk::Buffer vertexBuffers[] = { robj._vertexBuffers[frameNo]._buffer };
 				vk::DeviceSize offsets[] = { 0 };
 				cmdbuffer.bindVertexBuffers(0, vertexBuffers, offsets);
 				cmdbuffer.bindIndexBuffer(robj._indexBuffers[frameNo]._buffer, 0, vk::IndexType::eUint32);
 				cmdbuffer.drawRenderObjectMesh(&robj, ro_idx);
+				drcount++;
 			}
 			cmdbuffer.endRenderPass();
 
@@ -1950,6 +1960,8 @@ void PrismRenderer::addPSMapRenderCmds(size_t frameNo)
 				{}, {}, { imbarrier }
 			);
 		}
+
+		//std::cout << "plight" << lidx << " objs drawn: " << drcount << "\n";
 	}
 }
 

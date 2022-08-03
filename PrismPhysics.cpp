@@ -1,4 +1,5 @@
 #include "PrismPhysics.h"
+#include "glm/gtx/norm.hpp"
 
 void move_mesh_out_plane(PolyCollMesh* pm1, glm::vec4 plane_eq, float epsilon) {
 	float move_dist = epsilon;
@@ -18,7 +19,7 @@ PrismPhysics::PrismPhysics()
 	lmeshes = new std::vector<PolyCollMesh*>();
 	lmeshes_future = new std::vector<PolyCollMesh*>();
 
-	thread_pool = new SimpleThreadPooler(4);
+	thread_pool = new SimpleThreadPooler(3);
 	thread_pool->run();
 }
 
@@ -562,7 +563,7 @@ glm::vec3 apply_dbounds_vel(glm::vec3 vec_to_bound, std::vector<DynBound> dbound
 			float tcomp = glm::dot(tvel, cbounds[cbi]._dir);
 			glm::vec3 tvel1 = normalize_vec_in_dir(tdvel, cbounds[cbi]._dir);
 			glm::vec3 nvel1 = glm::dot(cbounds[cbi]._vel, cbounds[cbi]._dir) * cbounds[cbi]._dir;
-			if (glm::length(tvel1) == 0) {
+			if (glm::length2(tvel1) == 0) {
 				best_tdvel = glm::vec3(0);
 				continue;
 			}
@@ -655,7 +656,7 @@ glm::vec3 apply_dbounds_acc(glm::vec3 vec_to_bound, std::vector<DynBound> dbound
 			float tcomp = glm::dot(tvel, cbounds[cbi]._dir);
 			glm::vec3 tvel1 = normalize_vec_in_dir(tdvel, cbounds[cbi]._dir);
 			glm::vec3 nvel1 = glm::dot(cbounds[cbi]._acc, cbounds[cbi]._dir) * cbounds[cbi]._dir;
-			if (glm::length(tvel1) == 0) {
+			if (glm::length2(tvel1) == 0) {
 				best_tdvel = glm::vec3(0);
 				continue;
 			}
@@ -838,12 +839,12 @@ void PrismPhysics::run_physics_one_step()
 						glm::vec3 racc = ((*dmeshes_future)[i]->_bacc - dbounds[i][j]._acc);
 						glm::vec3 rtvel = normalize_vec_in_dir(rvel, dbounds[i][j]._dir, 0);
 						glm::vec3 sur_fric = glm::vec3(0);
-						if (glm::length(rtvel) > 0) {
+						if (glm::length2(rtvel) > 0) {
 							sur_fric = apply_dbounds_vel(
 								normalize_vec_in_dir(-dbounds[i][j].friction * glm::normalize(rtvel), dbounds[i][j]._dir, 0),
 								fric_dbounds[i]
 							);
-							if (glm::length(sur_fric) > 0) {
+							if (glm::length2(sur_fric) > 0) {
 								float lftime = -glm::dot(sur_fric, rtvel) / glm::dot(sur_fric, sur_fric);
 								if (lftime > 0 && lftime < 1) {
 									friction_end_list.push_back(sur_fric);
@@ -855,7 +856,7 @@ void PrismPhysics::run_physics_one_step()
 								sur_fric = apply_dbounds_acc(-racc, fric_dbounds[i]);
 							}
 							else {
-								if (glm::length(racc) > 0) {
+								if (glm::length2(racc) > 0) {
 									sur_fric = apply_dbounds_acc(
 										normalize_vec_in_dir(-dbounds[i][j].friction * glm::normalize(racc), dbounds[i][j]._dir, 0),
 										fric_dbounds[i]

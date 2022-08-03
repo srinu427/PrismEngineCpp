@@ -3,6 +3,7 @@
 
 #include "vkstructs.h"
 #include "CollisionStructs.h"
+#include "glm/gtx/norm.hpp"
 
 Prism::SwapChainSupportDetails::SwapChainSupportDetails(vk::PhysicalDevice device, vk::SurfaceKHR surface)
 {
@@ -196,6 +197,29 @@ bool Prism::Mesh::load_from_obj(const char* filename)
 
 	}
 	return true;
+}
+
+glm::vec3 Prism::Mesh::get_center()
+{
+	glm::vec3 _center = glm::vec3(0);
+	for (size_t i = 0; i < _vertices.size(); i++) {
+		_center += _vertices[i].pos;
+	}
+	_center /= float(_vertices.size());
+	return _center;
+}
+
+float Prism::Mesh::get_bound_sphere_radius()
+{
+	float mdist = 0;
+	
+	glm::vec3 _center = get_center();
+
+	for (size_t i = 0; i < _vertices.size(); i++) {
+		float tmpd = glm::length2(_vertices[i].pos - _center);
+		if (tmpd > mdist) mdist = tmpd;
+	}
+	return sqrt(mdist);
 }
 
 void Prism::Device::destroyGPUBuffer(GPUBuffer gbuff)

@@ -13,11 +13,11 @@ public:
 
 	template<typename F, typename ... Fargs>
 	void add_task(F&& f, Fargs&& ...args) {
-		at_lock.lock();
+		wait_lock.lock();
 		_rem_tasks[rtj] = std::function<void()>([f, args...]{ f(args...); });
+		_task_being_read[rtj] = false;
 		rtj = (rtj + 1) % MAX_TASKS;
-		at_lock.unlock();
-		
+		wait_lock.unlock();
 	};
 	void do_work(size_t tid);
 	void run();
@@ -29,7 +29,9 @@ private:
 	std::vector<std::thread*> _wthreads;
 	std::vector<bool> _thread_running;
 	std::vector<std::function<void()>> _rem_tasks;
-	uint32_t rti = 0, rtj = 0;
+	std::atomic<bool>* _task_being_read;
+	uint32_t rtj = 0;
 	std::mutex at_lock;
-	std::atomic_bool stop_work = false;
+	std::mutex wait_lock;
+	std::atomic<bool> stop_work = false;
 };

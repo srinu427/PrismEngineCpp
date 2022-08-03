@@ -142,6 +142,8 @@ namespace Prism {
 		void add_vertices(std::vector<Vertex> verts);
 		void make_cuboid(glm::vec3 center, glm::vec3 u, glm::vec3 v, float ulen, float vlen, float tlen);
 		bool load_from_obj(const char* filename);
+		glm::vec3 get_center();
+		float get_bound_sphere_radius();
 	};
 
 	struct GPUImage {

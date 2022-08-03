@@ -50,6 +50,8 @@ class PrismModelData
 public:
 	std::string id;
 	Prism::Mesh mesh;
+	glm::vec3 mesh_center = glm::vec3(0);
+	float mesh_sbound_radius = 0;
 	std::string texFilePath;
 	std::string nmapFilePath;
 	std::string semapFilePath;
